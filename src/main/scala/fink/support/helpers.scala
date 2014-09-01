@@ -6,10 +6,10 @@ import fink.data._
 
 object DateHelper {
 
-  protected val fmt = DateTimeFormat.forPattern("yyyy-MM-dd")
-  protected val yearFormat = DateTimeFormat.forPattern("yyyy")
-  protected val monthFormat = DateTimeFormat.forPattern("MM")
-  protected val dayFormat = DateTimeFormat.forPattern("dd")
+  protected lazy val fmt         = DateTimeFormat.forPattern("yyyy-MM-dd")
+  protected lazy val yearFormat  = DateTimeFormat.forPattern("yyyy")
+  protected lazy val monthFormat = DateTimeFormat.forPattern("MM")
+  protected lazy val dayFormat   = DateTimeFormat.forPattern("dd")
 
   protected val formats = collection.mutable.Map[String, DateTimeFormatter]()
 
@@ -41,17 +41,19 @@ object DateHelper {
 }
 
 object Config {
-  
-  private var _settings: Settings = null
 
-  def init(s: Settings) = {
-    _settings = s
+  private var _setting: Setting = null
+  var maybeSetting: Option[Setting] = None
+
+  def init(s: Option[Setting]) = {
+    maybeSetting = s
+    s.map(_setting = _)
   }
 
-  def settings: Settings = _settings
+  def setting: Setting = _setting
 
   def mediaDirectory = {
-    settings.uploadDirectory
+    setting.uploadDirectory
   }
 
 }
@@ -60,9 +62,9 @@ object TemplateHelper extends RepositorySupport {
 
   import DateHelper._
 
-  def postUri(post: Post) = {
-    renderContext.uri("/%s/%s/%s/%s/".format(year(post.date), month(post.date), day(post.date), post.shortlink))
-  }
+//  def postUri(post: Post) = {
+//    renderContext.uri("/%s/%s/%s/%s/".format(year(post.date), month(post.date), day(post.date), post.shortlink))
+//  }
 
   def slug(s: String) = {
     s.toLowerCase.replaceAll("""[^a-z0-9\s-]""", "")
@@ -70,6 +72,14 @@ object TemplateHelper extends RepositorySupport {
       .replaceAll("""\s""", "-")
   }
 
-  def settings = Config.settings
+  def setting = Config.setting
 
+  def maybeSetting = Config.maybeSetting
+
+  def defaultTitle: String = {
+    maybeSetting match {
+      case Some(s: Setting) => s.title
+      case _ => "undefined"
+    }
+  }
 }

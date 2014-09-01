@@ -1,20 +1,23 @@
 package fink.web
 
 import fink.data._
+import com.github.nscala_time.time.Imports._
+import org.scalatra._
+import scalate.ScalateSupport
+import org.fusesource.scalate.{ TemplateEngine, Binding }
+import org.scalatra.{scalate, ApiFormats, ScalatraServlet}
+import org.fusesource.scalate.layout.{DefaultLayoutStrategy, NullLayoutStrategy}
+import collection.mutable
 
-import org.scalatra.scalate.ScalateSupport
-import org.scalatra.{ApiFormats, ScalatraServlet}
+class Frontend extends ScalatraServlet
+with ApiFormats
+with ScalateSupport
+with RepositorySupport
+with MediaSupport {
 
-import org.joda.time._
-import org.joda.time.format._
+  override val defaultLayoutPath = Some("/frontend/layouts/default.jade")
+  override val defaultTemplatePath = List("/frontend")
 
-class Frontend extends ScalatraServlet with ApiFormats with ScalateSupport with RepositorySupport with MediaSupport {
-
-  override def jade(template: String, attributes: (String, Any)*)(implicit request: javax.servlet.http.HttpServletRequest, response: javax.servlet.http.HttpServletResponse) = {
-    templateAttributes("layout") = ("/frontend/layouts/default.jade")
-    super.jade("/frontend/%s.jade".format(template), attributes:_*)
-  }
-  
   before() {
     contentType = formats("html")
   }
@@ -36,26 +39,26 @@ class Frontend extends ScalatraServlet with ApiFormats with ScalateSupport with 
     }
   }
 
-  // get("/:year/:month/?", params.getAs[Int]("year").isDefined && params.getAs[Int]("month").isDefined) {
-  get("/:year/:month/?") {
-    (for {
-      year <- params.getAs[Int]("year")
-      month <- params.getAs[Int]("month")
-    } yield {
-      postRepository.byMonth(month, year) match {
-        case Nil => halt(404, "Not found.")
-        case posts: List[_] =>
-          val date = new LocalDate(year, month, 1)
-          val formatter = DateTimeFormat.forPattern("MMMM")
-
-          jade("archive-month", "posts" -> posts, "year" -> year, "month" -> formatter.print(date))
-      }
-    }) getOrElse pass()
-  }
+//  // get("/:year/:month/?", params.getAs[Int]("year").isDefined && params.getAs[Int]("month").isDefined) {
+//  get("/:year/:month/?") {
+//    (for {
+//      year <- params.getAs[Int]("year")
+//      month <- params.getAs[Int]("month")
+//    } yield {
+//      postRepository.byMonth(month, year) match {
+//        case Nil => halt(404, "Not found.")
+//        case posts: List[_] =>
+//          val date = new LocalDate(year, month, 1)
+//          val formatter = DateTimeFormat.forPattern("MMMM")
+//
+//          jade("archive-month", "posts" -> posts, "year" -> year, "month" -> formatter.print(date))
+//      }
+//    }) getOrElse pass()
+//  }
 
   get("/tag/:tag/?") {
     val tag = params("tag")
-    postRepository.byTag(tag) match {
+    postRepository.byTagName(tag) match {
       case Nil => halt(404, "Not found.")
       case posts: List[_] => jade("archive-tag", "posts" -> posts, "tag" -> tag)
     }

@@ -1,74 +1,94 @@
 package fink.web
 
-import fink.data._
 import fink.support._
 
 import org.scalatra.servlet.FileUploadSupport
 import org.scalatra.ScalatraServlet
 import org.scalatra.json.{JacksonJsonSupport, JValueResult}
 
+import scala.util.{Try, Success, Failure}
+
 import org.json4s.jackson.Serialization.read
+import com.github.nscala_time.time.Imports._
 
-import scala.slick.driver.H2Driver.simple._
-import Database.threadLocalSession
+import fink.data._
 
-trait ResourceRoutes extends ScalatraServlet with RepositorySupport with FileUploadSupport with JacksonJsonSupport {
+trait ResourceRoutes extends ScalatraServlet
+with RepositorySupport
+with FileUploadSupport
+with JacksonJsonSupport
+with grizzled.slf4j.Logging {
 
-  get("/api/settings") {
-    db withSession {
-      Query(SettingsTable).firstOption match {
-        case Some(s) => s
-        case None => halt(500, "Internal error.")
+  def getIdParameter(p: org.scalatra.Params): Try[Long] = {
+    p.getAs[Long]("id") match {
+      case Some(x: Long) => Success(x)
+      case _ => {
+        val ex = new Exception("Unable to create Long from given id parameter")
+        error(ex)
+        Failure(ex)
       }
     }
   }
 
-  put("/api/settings") {
-    db withSession {
-      val settings = read[Settings](request.body)
-      val updated = Query(SettingsTable).update(settings)
-      Config.init(settings)
+  get("/api/settings") {
+    settingRepository.find match {
+      case Some(s) => s
+      case _ => halt(500, "Internal error.")
     }
   }
 
+  put("/api/settings") {
+    val settings = read[Setting](request.body)
+    settingRepository.update(settings) match {
+      case Success(_) => {Config.init(settingRepository.byId(settings.id)); halt(204)}
+      case _ => halt(500)
+    }
+  }
+
+  /** get all API pages
+    *
+    */
   get("/api/pages") {
     pageRepository.findAll
   }
 
+  //FIXME, see if "read" can be made safe
   post("/api/pages") {
-    val page = read[Page](request.body)
-    val id = pageRepository.create(page.date, page.title, page.author, page.text, page.tags.map(_.name))
-
-    pageRepository.byId(id) match {
-      case Some(page) => page
-      case None => halt(500)
+    pageRepository.create(read[Page](request.body)) match {
+      case Success(page) => page
+      case Failure(ex) => halt(500, ex.getMessage)
+      case _ => halt(500)
     }
   }
 
   get("/api/pages/:id") {
-    val id = params("id").toLong
-
-    pageRepository.byId(id) match {
+    (for {
+      id <- params.getAs[Long]("id")
+      page <- pageRepository.byId(id)
+    } yield page) match {
       case Some(page) => page
-      case None => halt(404)
+      case _ => halt(404)
     }
   }
 
+  //FIXME
   put("/api/pages/:id") {
     val page = read[Page](request.body)
 
     pageRepository.update(page) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404, message)
+      case Success(_) => halt(204)
+      case Failure(ex) => halt(404, ex.getMessage)
+      case _ => halt(404)
     }
   }
 
   delete("/api/pages/:id") {
-    val id = params("id").toLong
-
-    pageRepository.delete(id) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404)
+    (for {
+      id <- params.getAs[Long]("id")
+      c <- (pageRepository.delete(id)).toOption
+    } yield c) match {
+      case Some(_) => halt(204)
+      case _ => halt(404)
     }
   }
 
@@ -76,90 +96,98 @@ trait ResourceRoutes extends ScalatraServlet with RepositorySupport with FileUpl
     postRepository.findAll
   }
 
+  //FIXME
   post("/api/posts") {
     val post = read[Post](request.body)
-    val id = postRepository.create(post.date, post.title, post.author, post.text, post.tags.map(_.name), post.category)
 
-    postRepository.byId(id) match {
-      case Some(post) => post
-      case None => halt(500)
+    postRepository.create(post) match {
+      case Success(post) => post
+      case _ => halt(500)
     }
   }
 
   get("/api/posts/:id") {
-    val id = params("id").toLong
-
-    postRepository.byId(id) match {
+    (for {
+      id <- params.getAs[Long]("id")
+      post <- postRepository.byId(id)
+    } yield post) match {
       case Some(post) => post
-      case None => halt(404)
+      case _ => halt(404)
     }
   }
 
+  //FIXME
   put("/api/posts/:id") {
     val post = read[Post](request.body)
 
-    postRepository.update(post) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404, message)
+    postRepository.update(post)
+    match {
+      case Failure(ex) => halt(404, ex.getMessage)
+      case _ => halt(204)
     }
   }
 
   delete("/api/posts/:id") {
-    val id = params("id").toLong
-
-    postRepository.delete(id) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404)
+    (for {
+      id <- params.getAs[Long]("id")
+      c <- postRepository.delete(id).toOption
+    } yield c) match {
+      case Some(_) => halt(204)
+      case _ => halt(404)
     }
   }
 
   get("/api/posts/:id/tags") {
-    val id = params("id").toLong
-
-    postRepository.byId(id) match {
+    postRepository.byId(params("id").toLong) match {
       case Some(post) => post.tags
       case None => halt(404)
     }
   }
 
+  /** Add a tag to a post */
+  // test this with bad id and bad tag name...
   post("/api/posts/:id/tags/:name") {
-    val id = params("id").toLong
-    val name = params("name")
-
-    postRepository.addTag(id, name) match {
-      case Ok => halt(204)
-      case AlreadyExists => halt(204)
-      case NotFound(message) => halt(404, message)
+    (for {
+      id <- params.getAs[Long]("id")
+      post <- postRepository.byId(id)
+      tag <- tagRepository.byName(params("name"))
+      c <- postRepository.update(post.copy(tags=tag +: post.tags)).toOption
+    } yield c) match {
+      case None => halt(404)
+      case _ => halt(204)
     }
   }
 
   delete("/api/posts/:id/tags/:name") {
-    val id = params("id").toLong
-    val name = params("name")
-
-    postRepository.removeTag(id, name) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404, message)
+    (for {
+      id <- params.getAs[Long]("id")
+      post <- postRepository.byId(id)
+      c <- postRepository.update(post.copy(tags=post.tags.filterNot(_.name == params("name")))).toOption
+    }yield c) match {
+      case None => halt(404)
+      case _ => halt(204)
     }
   }
 
-  get("/api/posts/:id/category") {
-    val id = params("id").toLong
-
-    postRepository.byId(id) match {
-      case Some(post) => post.category.getOrElse(halt(404))
-      case None => halt(404)
+  get("/api/posts/:id/categories") {
+    (for {
+      id <- params.getAs[Long]("id")
+      post <- postRepository.byId(id)
+    } yield post.categories) match {
+      case Some(categories) => categories
+      case _ => halt(404)
     }
   }
 
   put("/api/posts/:id/category/:name") {
-    val id = params("id").toLong
-    val name = params("name")
-
-    // alternative: retrieve post, retrieve category, clone post with new category, update post
-    postRepository.modifyCategory(id, name) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404, message)
+    (for {
+      id <- params.getAs[Long]("id")
+      post <- postRepository.byId(id)
+      category <- categoryRepository.byName(params("name"))
+      c <- postRepository.update(post.copy(categories=category +: post.categories)).toOption
+    } yield c) match {
+      case None => halt(404)
+      case _ => halt(204)
     }
   }
 
@@ -168,40 +196,43 @@ trait ResourceRoutes extends ScalatraServlet with RepositorySupport with FileUpl
   }
 
   get("/api/categories/:id") {
-    val id = params("id").toLong
-
-    categoryRepository.byId(id) match {
+    (for {
+      id <- params.getAs[Long]("id")
+      category <- categoryRepository.byId(id)
+    } yield category) match {
       case Some(category) => category
-      case None => halt(404)
+      case _ => halt(404)
     }
   }
 
-  post("/api/categories") {
+  //FIXME unique constraint could cause a failure here, and it should be reported
+  //Also read could be a problem
+  post("/api/category") {
     val category = read[Category](request.body)
-    val id = categoryRepository.create(category.name) // unique constraint
-
-    categoryRepository.byId(id) match {
-      case Some(category) => category
-      case None => halt(500)
+    (for {cat <- categoryRepository.create(category)} yield cat) match {
+      case Success(category) => category
+      case Failure(ex)=> halt(500, ex.getMessage)
     }
   }
 
+  //The difference here between put and post is that
+  //post creates and returns a new category and
+  //put updates a category
   put("/api/categories/:id") {
     val category = read[Category](request.body)
-    val id = params("id").toLong
-
-    categoryRepository.update(category) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404, message)
+    (for {cat <- categoryRepository.update(category)} yield cat) match {
+      case Failure(ex) => halt(404, ex.getMessage)
+      case _ => halt(204)
     }
   }
 
   delete("/api/categories/:id") {
-    val id = params("id").toLong
-
-    categoryRepository.delete(id) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404, message)
+    (for {
+      id <- getIdParameter(params)
+      c <- categoryRepository.delete(id)
+    } yield c) match {
+      case Failure(ex) => halt(404, ex.getMessage)
+      case _ => halt(204)
     }
   }
 
@@ -210,40 +241,43 @@ trait ResourceRoutes extends ScalatraServlet with RepositorySupport with FileUpl
   }
 
   get("/api/tags/:id") {
-    val id = params("id").toLong
-
-    tagRepository.byId(id) match {
+    (for {
+      id <- params.getAs[Long]("id")
+      t <- tagRepository.byId(id)
+    } yield t) match {
       case Some(tag) => tag
-      case None => halt(404)
+      case _ => halt(404)
     }
   }
 
+  //FIXME why create a Tag, then use only the name to create the Tag?
   post("/api/tags") {
-    val tag = read[Tag](request.body)
-    val id = tagRepository.create(tag.name) // unique constraint
-
-    tagRepository.byId(id) match {
-      case Some(tag) => tag
-      case None => halt(500)
+    val tag = read[fink.data.Tag](request.body)
+    (for {
+      t <- tagRepository.create(tag.name)
+    } yield t) match {
+      case Success(tag) => tag
+      case _ => halt(500)
     }
   }
 
   put("/api/tags/:id") {
-    val tag = read[Tag](request.body)
-    val id = params("id").toLong
-
-    tagRepository.update(tag) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404, message)
+    val tag = read[fink.data.Tag](request.body)
+    (for {
+     c <- tagRepository.update(tag)
+    } yield c) match {
+      case Failure(ex) => halt(404, ex.getMessage)
+      case _ => halt(204)
     }
   }
 
   delete("/api/tags/:id") {
-    val id = params("id").toLong
-
-    tagRepository.delete(id) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404, message)
+    (for {
+      id <- getIdParameter(params)
+      c <- tagRepository.delete(id)
+    } yield c) match {
+      case Failure(ex) => halt(404, ex.getMessage)
+      case _ => halt(204)
     }
   }
 
@@ -253,92 +287,57 @@ trait ResourceRoutes extends ScalatraServlet with RepositorySupport with FileUpl
 
   post("/api/galleries") {
     val gallery = read[Gallery](request.body)
-    val id = galleryRepository.create(gallery.coverId, gallery.date, gallery.title, gallery.author, gallery.shortlink, gallery.text, gallery.tags.map(_.name))
-
-    galleryRepository.byId(id) match {
-      case Some(gallery) => gallery
-      case None => halt(500)
+    (for {
+      g <- galleryRepository.create(gallery)
+    } yield g) match {
+      case Success(gallery) => gallery
+      case Failure(ex) => halt(404, ex.getMessage)
+      case _ => halt(404)
     }
   }
 
   get("/api/galleries/:id") {
-    val id = params("id").toLong
-
-    galleryRepository.byId(id) match {
+    for {
+      id <- params.getAs[Long]("id")
+    } yield galleryRepository.byId(id) match {
       case Some(gallery) => gallery
-      case None => halt(404, "Could not find gallery: %s".format(id))
+      case _ => halt(404)
     }
   }
 
   put("/api/galleries/:id") {
-    val id = params("id").toLong
     val gallery = read[Gallery](request.body)
-
     galleryRepository.update(gallery) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404, message)
+      case Failure(ex) => halt(404, ex.getMessage)
+      case _ => halt(204)
     }
   }
 
   delete("/api/galleries/:id") {
-    val id = params("id").toLong
-    galleryRepository.delete(id) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404, message)
+    for {
+      id <- getIdParameter(params)
+    } yield galleryRepository.delete(id) match {
+      case Failure(ex) => halt(404, ex.getMessage)
+      case _ => halt(204)
     }
   }
 
   get("/api/galleries/:id/cover") {
-    val id = params("id").toLong
-
-    galleryRepository.byId(id).map(_.coverId) match {
-      case Some(coverId) if coverId != 0 => "cover %s".format(coverId)
-      case None => halt(404, "Could not find cover for gallery: %s".format(id))
+    for {
+      id <- params.getAs[Long]("id")
+      gallery <- galleryRepository.byId(id)
+    } yield gallery.cover match {
+      case Some(cover) => cover
+      case _ => halt(404)
     }
-  }
-
-  post("/api/galleries/:id/cover") {
-    val id = params("id").toLong
-    val coverId = params("coverId").toLong
-    galleryRepository.setCover(id, coverId)
-    halt(204)
   }
 
   get("/api/galleries/:id/images") {
-    val id = params("id").toLong
-
-    galleryRepository.byId(id) match {
-      case Some(gallery) => gallery.images
-      case None => halt(404, "Could not find gallery: %s".format(id))
-    }
-  }
-
-  post("/api/galleries/:id/images") {
-    val id = params("id").toLong
-    val order = params("order").split(",").toList.map(_.toLong)
-
-    galleryRepository.updateImageOrder(id, order)
-    halt(204)
-  }
-
-  post("/api/galleries/:galleryId/images/:imageId") {
-    val galleryId = params("galleryId").toLong
-    // val imageId = params("imageId").toLong => 500
-    val imageId = params("imageId").toLong
-
-    galleryRepository.addImage(galleryId, imageId) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404, message)
-    }
-  }
-
-  delete("/api/galleries/:galleryId/images/:imageId") {
-    val galleryId = params("galleryId").toLong
-    val imageId = params("imageId").toLong
-
-    galleryRepository.removeImage(galleryId, imageId) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404, message)
+    for {
+      id <- params.getAs[Long]("id")
+    } yield galleryRepository.byId(id) match {
+      case Some(gallery: Gallery) => gallery.images
+      case _ => halt(404)
     }
   }
 
@@ -346,39 +345,40 @@ trait ResourceRoutes extends ScalatraServlet with RepositorySupport with FileUpl
     imageRepository.findAll
   }
 
+  //FIXME This is totally unsafe
   post("/api/images") {
+    //date: java.sql.Date, title: String, author: String, hash: String, contentType: String, filename: String)
     MediaManager.processUpload(fileParams("file")) match {
       case Some(ImageUpload(hash, contentType, filename)) =>
-        imageRepository.create(0, filename, "", hash, contentType, filename)
+        imageRepository.create(new DateTime, "", "", hash, contentType, filename)
       case None => halt(500)
     }
   }
 
   get("/api/images/:id") {
-    val id = params("id").toLong
-
-    imageRepository.byId(id) match {
+    for {
+      id <- params.getAs[Long]("id")
+    } yield imageRepository.byId(id) match {
       case Some(image) => image
-      case None => halt(404, "Could not find image: %s".format(id))
+      case _ => halt(404)
     }
   }
 
+  //FIXME this is also unsafe.
   put("/api/images/:id") {
-    val id = params("id").toLong
     val image = read[Image](request.body)
-
     imageRepository.update(image) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404, message)
+      case Failure(ex) => halt(404, ex.getMessage)
+      case _ => halt(204)
     }
   }
 
   delete("/api/images/:id") {
-    val id = params("id").toLong
-    imageRepository.delete(id) match {
-      case Ok => halt(204)
-      case NotFound(message) => halt(404, message)
+    for {
+      id <- getIdParameter(params)
+    } yield imageRepository.delete(id) match {
+      case Failure(ex) => halt(404, ex.getMessage)
+      case _ => halt(204)
     }
   }
-
 }

@@ -1,16 +1,15 @@
 <configuration>
-
-	<appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-		<encoder>
-			<pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
-		</encoder>
-	</appender>
-
-	<logger name="org.fusesource.scalate" level="INFO" />
-	<logger name="org.scalatra" level="INFO" />
-	<logger name="org.eclipse.jetty" level="INFO" />
-
-	<root level="info">
-		<appender-ref ref="STDOUT" />
-	</root>
+   <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+      <encoder>
+         <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+      </encoder>
+   </appender>
+   <!--  <logger name="org.fusesource.scalate" level="INFO" />
+   <logger name="org.scalatra" level="INFO" />
+   <logger name="org.eclipse.jetty" level="INFO" /> -->
+   <!-- <logger name="scala.slick" level="DEBUG" /> -->
+   <logger name="scala.slick.jdbc.JdbcBackend.statement" level="DEBUG"/>
+   <root level="debug">
+      <appender-ref ref="STDOUT" />
+   </root>
 </configuration>

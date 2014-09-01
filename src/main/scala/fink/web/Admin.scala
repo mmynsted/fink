@@ -5,7 +5,12 @@ import fink.data._
 import org.scalatra.scalate.ScalateSupport
 import org.scalatra.ScalatraServlet
 
-class Admin extends ScalatraServlet with ScalateSupport with RepositorySupport with MediaSupport with AuthenticationRoutes with ResourceRoutes {
+class Admin extends ScalatraServlet
+with ScalateSupport
+with RepositorySupport
+with MediaSupport
+with AuthenticationRoutes
+with ResourceRoutes {
 
   override implicit protected val jsonFormats = JsonFormats()
 

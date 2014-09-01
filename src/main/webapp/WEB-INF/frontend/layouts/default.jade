@@ -1,8 +1,9 @@
 -import fink.support.TemplateHelper._
 
 -@ var body: String
--@ var title : String = settings.title
+-@ var title: String = defaultTitle
 -@ var classes : String = "layout-2cr"
+
 
 !!! Basic
 html(lang="en")
@@ -10,8 +11,10 @@ html(lang="en")
     meta(http-equiv="Content-Type" content="text/html; charset=utf-8")
 
     meta(name="author" content="Mr Foo")
-    meta(name="description" content={settings.description})
-    meta(name="keywords" content={settings.keywords.mkString(",")})
+    - for (s <- maybeSetting)
+      meta(name="description" content={s.description})
+    - for (s <- maybeSetting)
+      meta(name="keywords" content={s.keywords})
 
     link(rel="stylesheet" type="text/css" href={uri("/frontend/site.css")})
 
@@ -44,9 +47,9 @@ html(lang="en")
           aside#archives.widget
             h1.widget-title Archives
             ul
-              - for (((year, month, monthName), posts) <- postRepository.byMonth)
+              - for ((k, posts) <- postRepository.byMonth)
                 li
-                  a(href={uri("/%s/%02d/".format(year, month))} title={"%s %s".format(monthName, year)})= "%s %s".format(monthName, year)
+                  a(href={uri("/%s/%02d/".format(k.year, k.month))} title={"%s %s".format(k.monthName, k.year)})= "%s %s".format(k.monthName, k.year)
 
           aside#meta.widget
             h1.widget-title Meta

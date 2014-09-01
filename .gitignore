@@ -1,13 +1,22 @@
 .settings
-.project
-.classpath
+/\.project
+/\.classpath
+/.settings/org.scala-ide.sdt.core.prefs
 
-.idea
-.idea_modules
+/.idea/
+/.idea_modules
+/.DS_Store
 
-target
+target/
+/\.target/
 
 src/main/resources/fink.properties
 src/main/webapp/uploads
 
-/.cache
+/\.cache
+
+*~
+*.swp
+*.swo
+*.log
+*.iml
